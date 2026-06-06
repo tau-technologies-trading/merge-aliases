@@ -35,20 +35,14 @@ jobs:
             binary: merge-aliases
 
           - target: x86_64-pc-windows-msvc
-            runner: blacksmith-4vcpu-windows-2025
+            runner: blacksmith-4vcpu-ubuntu-2404
             binary: merge-aliases.exe
-            msvc_arch: amd64
-            msvc_target_arch: x64
-            msvc_lib_arch: x64
-            msvc_component: Microsoft.VisualStudio.Component.VC.Tools.x86.x64
+            xwin: true
 
           - target: aarch64-pc-windows-msvc
-            runner: blacksmith-4vcpu-windows-2025
+            runner: blacksmith-4vcpu-ubuntu-2404
             binary: merge-aliases.exe
-            msvc_arch: amd64_arm64
-            msvc_target_arch: arm64
-            msvc_lib_arch: arm64
-            msvc_component: Microsoft.VisualStudio.Component.VC.Tools.ARM64
+            xwin: true
 
     steps:
       - name: Checkout
@@ -63,59 +57,20 @@ jobs:
         if: runner.os != 'Windows'
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Build release binary
-        if: runner.os == 'Windows'
-        shell: cmd
+      - name: Install Windows cross-build dependencies
+        if: matrix.xwin == true
         run: |
-          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VSINSTALL=%%i"
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm
+          cargo install --locked cargo-xwin
 
-          if not defined VSINSTALL (
-            echo Visual Studio Build Tools not found
-            exit /b 1
-          )
+      - name: Build Windows release binary
+        if: matrix.xwin == true
+        run: cargo xwin build --release --target ${{ matrix.target }}
 
-          echo Visual Studio installation: %VSINSTALL%
-
-          call "%VSINSTALL%\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.msvc_arch }}
-
-          if not exist "%VCToolsInstallDir%lib\${{ matrix.msvc_lib_arch }}\msvcrt.lib" (
-            echo Missing MSVC library for ${{ matrix.msvc_lib_arch }}.
-            echo Installing component: ${{ matrix.msvc_component }}
-
-            "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\setup.exe" modify ^
-              --installPath "%VSINSTALL%" ^
-              --add ${{ matrix.msvc_component }} ^
-              --add Microsoft.VisualStudio.Component.Windows11SDK.26100 ^
-              --quiet ^
-              --wait ^
-              --norestart ^
-              --nocache
-
-            if errorlevel 1 (
-              echo Visual Studio component installation failed.
-              exit /b 1
-            )
-
-            call "%VSINSTALL%\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.msvc_arch }}
-          )
-
-          echo VSCMD_ARG_TGT_ARCH=%VSCMD_ARG_TGT_ARCH%
-          echo VCToolsInstallDir=%VCToolsInstallDir%
-          echo LIB=%LIB%
-          where link
-
-          if /I not "%VSCMD_ARG_TGT_ARCH%"=="${{ matrix.msvc_target_arch }}" (
-            echo Wrong MSVC target architecture. Expected ${{ matrix.msvc_target_arch }}, got %VSCMD_ARG_TGT_ARCH%.
-            exit /b 1
-          )
-
-          if not exist "%VCToolsInstallDir%lib\${{ matrix.msvc_lib_arch }}\msvcrt.lib" (
-            echo Expected MSVC CRT library still missing:
-            echo "%VCToolsInstallDir%lib\${{ matrix.msvc_lib_arch }}\msvcrt.lib"
-            exit /b 1
-          )
-
-          cargo build --release --target ${{ matrix.target }}
+      - name: Build release binary
+        if: matrix.xwin != true
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Upload binary
         uses: actions/upload-artifact@v7.0.1
