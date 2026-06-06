@@ -53,10 +53,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Build release binary
-        if: runner.os != 'Windows'
-        run: cargo build --release --target ${{ matrix.target }}
-
       - name: Install Windows cross-build dependencies
         if: matrix.xwin == true
         run: |
