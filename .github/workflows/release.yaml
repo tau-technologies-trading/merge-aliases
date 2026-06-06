@@ -33,9 +33,11 @@ jobs:
           - target: x86_64-pc-windows-msvc
             runner: blacksmith-4vcpu-windows-2025
             binary: merge-aliases.exe
+            msvc_arch: amd64
           - target: aarch64-pc-windows-msvc
             runner: blacksmith-4vcpu-windows-2025
             binary: merge-aliases.exe
+            msvc_arch: amd64_arm64
 
     steps:
       - name: Checkout
@@ -45,6 +47,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Configure MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
