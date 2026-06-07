@@ -2,5 +2,14 @@
 name = "merge-aliases"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+authors = ["Tau Technologies"]
+description = "CLI for appending Wilder RSI columns to Binance Vision CSV files"
+readme = "README.md"
+repository = "https://github.com/tau-technologies-trading/add-rsi"
+homepage = "https://github.com/tau-technologies-trading/add-rsi"
+license = "MIT"
+keywords = ["rsi", "binance", "csv", "trading", "cli"]
+categories = ["command-line-utilities"]
 
 [dependencies]
