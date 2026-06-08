@@ -1,15 +1,15 @@
 [package]
 name = "merge-aliases"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Tau Technologies"]
-description = "CLI for appending Wilder RSI columns to Binance Vision CSV files"
+description = "CLI for merging old tickers of stocks or crypto data with new ones, seamlessly"
 readme = "README.md"
-repository = "https://github.com/tau-technologies-trading/add-rsi"
-homepage = "https://github.com/tau-technologies-trading/add-rsi"
+repository = "https://github.com/tau-technologies-trading/merge-aliases"
+homepage = "https://github.com/tau-technologies-trading/merge-aliases"
 license = "MIT"
-keywords = ["rsi", "binance", "csv", "trading", "cli"]
+keywords = ["merge", "binance", "csv", "trading", "cli"]
 categories = ["command-line-utilities"]
 
 [dependencies]

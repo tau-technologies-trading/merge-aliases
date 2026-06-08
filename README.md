@@ -79,9 +79,9 @@ For an alias like `FB --> META`, the tool looks for CSV files in `data/FB/` whos
 ## Merge Behavior
 
 - If the target file does not exist, the old file is renamed into the new ticker folder.
-- If the target file exists, rows are merged by row number.
-- Existing rows in the target file are preferred.
-- Extra rows from the old file are appended when the old file has more rows than the target file.
+- If the target file exists, rows are concatenated: old file first, then new file.
+- This preserves chronological order (old data before rename, new data after rename).
+- If both files cover the same timestamp, the new file's row is kept when using `INSERT OR REPLACE` in csv-to-turso.
 - After a successful merge, the old source CSV is removed.
 - The old ticker folder is removed if it is empty, unless `--keep-old` is used.
 

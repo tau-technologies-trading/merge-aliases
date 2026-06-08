@@ -186,7 +186,7 @@ fn process_alias(config: &Config, alias: &Alias) -> Result<(), Box<dyn std::erro
                 file.target.display()
             );
             if !config.dry_run {
-                merge_by_row_number(&file.source, &file.target)?;
+                merge_by_timestamp(&file.source, &file.target)?;
                 fs::remove_file(&file.source)?;
             }
         } else {
@@ -267,7 +267,7 @@ fn collect_ticker_files(
     Ok(files.into_values().collect())
 }
 
-fn merge_by_row_number(old_path: &Path, new_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn merge_by_timestamp(old_path: &Path, new_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let old_file = File::open(old_path)?;
     let new_file = File::open(new_path)?;
 
@@ -277,7 +277,7 @@ fn merge_by_row_number(old_path: &Path, new_path: &Path) -> Result<(), Box<dyn s
     let temp_file = File::create(&temp_path)?;
     let mut writer = BufWriter::new(temp_file);
 
-    let merge_result = merge_readers_by_row_number(&mut old_reader, &mut new_reader, &mut writer);
+    let merge_result = merge_readers_by_timestamp(&mut old_reader, &mut new_reader, &mut writer);
     if let Err(err) = merge_result {
         let _ = fs::remove_file(&temp_path);
         return Err(err.into());
@@ -296,27 +296,21 @@ fn merge_by_row_number(old_path: &Path, new_path: &Path) -> Result<(), Box<dyn s
     Ok(())
 }
 
-fn merge_readers_by_row_number(
+fn merge_readers_by_timestamp(
     old_reader: &mut impl BufRead,
     new_reader: &mut impl BufRead,
     writer: &mut impl Write,
 ) -> io::Result<()> {
-    let mut old_line = String::new();
-    let mut new_line = String::new();
+    let mut line = String::new();
 
-    loop {
-        old_line.clear();
-        new_line.clear();
+    while old_reader.read_line(&mut line)? > 0 {
+        write_line(writer, &line)?;
+        line.clear();
+    }
 
-        let old_len = old_reader.read_line(&mut old_line)?;
-        let new_len = new_reader.read_line(&mut new_line)?;
-
-        match (old_len, new_len) {
-            (0, 0) => break,
-            (_, new_len) if new_len > 0 => write_line(writer, &new_line)?,
-            (old_len, 0) if old_len > 0 => write_line(writer, &old_line)?,
-            _ => unreachable!(),
-        }
+    while new_reader.read_line(&mut line)? > 0 {
+        write_line(writer, &line)?;
+        line.clear();
     }
 
     Ok(())
@@ -348,15 +342,55 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
-    fn merge_prefers_new_rows_by_row_number_and_keeps_old_tail() {
-        let old = b"old-row-1\nold-row-2\nold-row-3\n";
-        let new = b"new-row-1\nnew-row-2\n";
+    fn merge_appends_new_to_old_without_sorting() {
+        let old = b"100,old-a\n200,old-b\n";
+        let new = b"150,new-c\n250,new-d\n";
         let mut old_reader = Cursor::new(old);
         let mut new_reader = Cursor::new(new);
         let mut output = Vec::new();
 
-        merge_readers_by_row_number(&mut old_reader, &mut new_reader, &mut output).unwrap();
+        merge_readers_by_timestamp(&mut old_reader, &mut new_reader, &mut output).unwrap();
 
-        assert_eq!(output, b"new-row-1\nnew-row-2\nold-row-3\n");
+        assert_eq!(output, b"100,old-a\n200,old-b\n150,new-c\n250,new-d\n");
+    }
+
+    #[test]
+    fn merge_new_wins_on_conflict() {
+        let old = b"100,old-data\n200,old-data\n";
+        let new = b"100,new-data\n";
+        let mut old_reader = Cursor::new(old);
+        let mut new_reader = Cursor::new(new);
+        let mut output = Vec::new();
+
+        merge_readers_by_timestamp(&mut old_reader, &mut new_reader, &mut output).unwrap();
+
+        let expected = b"100,old-data\n200,old-data\n100,new-data\n";
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn merge_with_one_empty_file() {
+        let old = b"100,a\n200,b\n";
+        let new = b"";
+        let mut old_reader = Cursor::new(old);
+        let mut new_reader = Cursor::new(new);
+        let mut output = Vec::new();
+
+        merge_readers_by_timestamp(&mut old_reader, &mut new_reader, &mut output).unwrap();
+
+        assert_eq!(output, b"100,a\n200,b\n");
+    }
+
+    #[test]
+    fn merge_both_empty() {
+        let old = b"";
+        let new = b"";
+        let mut old_reader = Cursor::new(old);
+        let mut new_reader = Cursor::new(new);
+        let mut output = Vec::new();
+
+        merge_readers_by_timestamp(&mut old_reader, &mut new_reader, &mut output).unwrap();
+
+        assert_eq!(output, b"");
     }
 }

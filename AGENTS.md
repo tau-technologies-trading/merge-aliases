@@ -38,7 +38,7 @@ Run `cargo test` before considering behavior changes complete. Use `cargo build`
 - Alias lines must contain `-->`; both sides must be non-empty and different.
 - Only files in the old ticker folder ending in `.csv` and starting with `{OLD}-` are processed.
 - Target filenames replace the old ticker prefix with the new ticker prefix.
-- Existing target CSV rows win by row number; extra old rows are appended.
+- Rows are concatenated: old file first, then new file. New data for the same timestamp wins when imported with `INSERT OR REPLACE`.
 - Temporary files are written next to the target file during merges.
 - Old source CSV files are removed after successful non-dry-run merges.
 - Empty old ticker folders are removed unless `--keep-old` is passed.
