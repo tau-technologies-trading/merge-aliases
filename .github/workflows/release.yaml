@@ -175,14 +175,32 @@ jobs:
               range="HEAD"
             fi
 
-            commits="$(git log --format='- %h %s' "${range}")"
+            commits_found=false
 
-            if [ -n "${commits}" ]; then
-              printf '%s\n' "${commits}"
-            else
-              printf '- No commits found.\n'
+            while IFS=$'\t' read -r full_hash short_hash subject; do
+              commits_found=true
+              username="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${full_hash}" --jq '.author.login // empty' 2>/dev/null || true)"
+
+              if [ -n "${username}" ]; then
+                printf '`[%s %s]` by @%s\n' "${short_hash}" "${subject}" "${username}"
+              else
+                author="$(git show -s --format='%aN' "${full_hash}")"
+                printf '`[%s %s]` by %s\n' "${short_hash}" "${subject}" "${author}"
+              fi
+            done < <(git log --format='%H%x09%h%x09%s' "${range}")
+
+            if [ "${commits_found}" = false ]; then
+              printf '%s\n' '- No commits found.'
             fi
           } > release-notes.md
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish crate to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
 
       - name: Create GitHub release
         env:
