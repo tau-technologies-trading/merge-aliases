@@ -90,7 +90,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Upload binary
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: merge-aliases-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary }}
