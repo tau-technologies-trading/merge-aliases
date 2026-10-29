@@ -4,6 +4,8 @@
 
 It reads alias mappings in the format `OLD --> NEW`, moves matching CSV files from the old ticker folder into the new ticker folder, and merges files that already exist under the new ticker seamlessly.
 
+The crate also exposes `plan_json` for a read-only merge plan and `merge_folder` for processing one data directory from another Rust application.
+
 ## Requirements
 
 - Rust 2024 edition toolchain
