@@ -28,7 +28,9 @@ Options:
 ```text
 -a, --aliases <PATH>  Alias file path [default: ../aliases.txt]
 -d, --data <PATH>     Data directory path [default: ../data]
+-j, --jobs <N>        Maximum files processed in parallel [default: 4]
     --dry-run         Print actions without modifying files
+    --plan            Print planned operations as JSON without modifying files
     --keep-old        Do not remove empty old ticker folders
 -h, --help            Print help
 ```
@@ -78,10 +80,16 @@ For an alias like `FB --> META`, the tool looks for CSV files in `data/FB/` whos
 
 ## Merge Behavior
 
+`--plan` reports each operation as JSON with `source` and `target` paths relative to the data directory and a `merge` boolean indicating whether the target exists. It does not create or alter files.
+
+Aliases are handled one at a time. Files within each ticker are validated and merged concurrently, up to `--jobs`.
+
+Non-dry runs hold an exclusive lock on `data/.merge-aliases.lock` for the duration of validation and merging. A concurrent `merge-aliases` run against the same data directory fails instead of changing files at the same time. The lock file stays in place after the run. Dry runs do not create or acquire it, and other programs must coordinate separately.
+
 - If the target file does not exist, the old file is renamed into the new ticker folder.
-- If the target file exists, rows are concatenated: old file first, then new file.
-- This preserves chronological order (old data before rename, new data after rename).
-- If both files cover the same timestamp, the new file's row is kept when using `INSERT OR REPLACE` in csv-to-turso.
+- If the target file exists, both files are merged in ascending `open_time` order.
+- If both files contain the same timestamp, the new ticker row wins.
+- Every input file must have strictly increasing numeric timestamps. Inputs and alias mappings are checked before any files are moved. Alias chains, cycles, repeated sources, and repeated targets are rejected; resolve those mappings separately.
 - After a successful merge, the old source CSV is removed.
 - The old ticker folder is removed if it is empty, unless `--keep-old` is used.
 
