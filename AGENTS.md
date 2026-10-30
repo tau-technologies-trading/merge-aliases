@@ -1,62 +1,24 @@
 # AGENTS.md
 
-## Project Overview
+## Project overview
 
-`merge-aliases` is a small Rust CLI that merges ticker data folders after ticker symbol renames. It reads alias mappings formatted as `OLD --> NEW`, moves CSV files from the old ticker directory to the new ticker directory, and merges row-by-row when the destination CSV already exists.
+`merge-aliases` is a library crate for merging ticker CSV data after symbol renames. Its public API is in `src/lib.rs`; this package has no CLI executable.
 
-## Repository Layout
+## Public API
 
-- `src/main.rs`: CLI argument parsing, alias parsing, file collection, merge behavior, and unit tests.
-- `Cargo.toml`: Rust package metadata. This project currently has no external dependencies.
-- `README.md`: User-facing build, usage, data layout, and merge behavior documentation.
-- `.github/workflows/tests.yaml`: CI build and test workflow for stable, beta, and nightly Rust.
-- `.github/workflows/release.yaml`: Manual release workflow for Linux, macOS, and Windows binaries.
+- `plan_json` returns a read-only JSON plan.
+- `merge_folder` processes one data directory with parallel file work.
 
-## Development Commands
+## Behavior
 
-- `cargo build`: Build the debug binary.
-- `cargo build --release`: Build the optimized release binary at `target/release/merge-aliases`.
-- `cargo test`: Run the test suite.
-- `cargo run -- --dry-run`: Run with default paths and print planned actions without modifying files.
-- `cargo run -- --aliases ../aliases.txt --data ../data --dry-run`: Run against explicit alias and data paths without modifying files.
+- Alias lines use `OLD --> NEW`; comments start with `#`.
+- Only files matching the old ticker prefix and ending in `.csv` are processed.
+- Colliding files merge by timestamp, with the target row winning duplicate timestamps.
+- Source files are removed after successful merge; empty old ticker folders are removed.
+- Non-dry-run merges lock the data directory.
 
-Run `cargo test` before considering behavior changes complete. Use `cargo build` when changing CLI flow or filesystem behavior.
+## Validation
 
-## Coding Guidelines
-
-- Keep the implementation dependency-free unless there is a strong reason to add a crate.
-- Prefer small, direct functions and standard library APIs.
-- Preserve the current CLI defaults: `../aliases.txt` for aliases and `../data` for data.
-- Preserve dry-run behavior: `--dry-run` must not create, move, merge, delete, or rename files.
-- Treat filesystem operations carefully. Avoid destructive changes unless the code has already validated paths and intended actions.
-- Keep error messages specific enough to identify the problematic path, argument, or alias line.
-- Keep output human-readable and consistent with the existing style.
-
-## Behavior Notes
-
-- Alias lines are comments if they start with `#` after trimming.
-- Alias lines must contain `-->`; both sides must be non-empty and different.
-- Only files in the old ticker folder ending in `.csv` and starting with `{OLD}-` are processed.
-- Target filenames replace the old ticker prefix with the new ticker prefix.
-- Rows are concatenated: old file first, then new file. New data for the same timestamp wins when imported with `INSERT OR REPLACE`.
-- Temporary files are written next to the target file during merges.
-- Old source CSV files are removed after successful non-dry-run merges.
-- Empty old ticker folders are removed unless `--keep-old` is passed.
-
-## Testing Guidance
-
-- Add focused unit tests near the existing tests in `src/main.rs` for pure parsing or merge behavior.
-- Prefer temporary directories only when testing filesystem behavior; ensure tests clean up after themselves.
-- Include dry-run coverage when changing code that performs filesystem mutations.
-- Keep tests deterministic and independent of external `../aliases.txt` or `../data` files.
-
-## Documentation
-
-- Update `README.md` when changing CLI options, defaults, alias format, data layout, or merge semantics.
-- Keep examples aligned with the actual binary options printed by `--help`.
-
-## Agent Notes
-
-- Do not edit generated build artifacts under `target/`.
-- Do not assume real ticker data exists in the workspace.
-- Do not commit or tag releases unless explicitly asked.
+- `cargo fmt --check`
+- `cargo build --release`
+- `cargo test` when the user asks for tests or verification

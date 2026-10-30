@@ -4,13 +4,12 @@ version = "0.2.1"
 edition = "2024"
 rust-version = "1.90"
 authors = ["Tau Technologies"]
-description = "CLI for merging old tickers of stocks or crypto data with new ones, seamlessly"
+description = "Library for merging CSV data after ticker renames"
 readme = "README.md"
 repository = "https://github.com/tau-technologies-trading/merge-aliases"
 homepage = "https://github.com/tau-technologies-trading/merge-aliases"
 license = "MIT"
-keywords = ["merge", "binance", "csv", "trading", "cli"]
-categories = ["command-line-utilities"]
+keywords = ["merge", "binance", "csv", "trading"]
 
 [dependencies]
 serde_json = "1"

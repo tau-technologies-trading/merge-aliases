@@ -1,18 +1,17 @@
 use std::collections::BTreeMap;
-use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod queued_writer;
+use queued_writer::QueuedWriter;
+
 #[derive(Debug)]
 struct Config {
     aliases_path: PathBuf,
     data_path: PathBuf,
-    dry_run: bool,
-    keep_old: bool,
     jobs: usize,
-    plan: bool,
 }
 
 #[derive(Debug)]
@@ -27,27 +26,6 @@ struct TickerFile {
     target: PathBuf,
 }
 
-/// Run the `merge-aliases` command-line interface.
-pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
-    if env::args_os()
-        .skip(1)
-        .any(|arg| arg == "-V" || arg == "--version")
-    {
-        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
-    run()
-}
-
-fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let config = parse_args(env::args().skip(1))?;
-    if config.plan {
-        println!("{}", plan_json(&config.aliases_path, &config.data_path)?);
-        return Ok(());
-    }
-    run_config(config)
-}
-
 /// Return the read-only merge plan as JSON for the requested data directory.
 pub fn plan_json(
     aliases_path: &Path,
@@ -58,10 +36,7 @@ pub fn plan_json(
     let config = Config {
         aliases_path: aliases_path.to_path_buf(),
         data_path: data_path.to_path_buf(),
-        dry_run: false,
-        keep_old: false,
         jobs: 1,
-        plan: true,
     };
     let operations = plan_operations(&config, &aliases)?;
     Ok(serde_json::json!({ "operations": operations }).to_string())
@@ -79,10 +54,7 @@ pub fn merge_folder(
     run_config(Config {
         aliases_path: aliases_path.to_path_buf(),
         data_path: data_path.to_path_buf(),
-        dry_run: false,
-        keep_old: false,
         jobs,
-        plan: false,
     })
 }
 
@@ -95,11 +67,7 @@ fn run_config(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     validate_aliases(&aliases)?;
-    let _lock = if config.dry_run {
-        None
-    } else {
-        Some(lock_data_directory(&config.data_path)?)
-    };
+    let _lock = lock_data_directory(&config.data_path)?;
     // Check every input before moving or replacing any file.
     for alias in &aliases {
         let old_dir = config.data_path.join(&alias.old);
@@ -227,79 +195,6 @@ fn validate_aliases(aliases: &[Alias]) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-fn parse_args<I>(args: I) -> Result<Config, String>
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut aliases_path = PathBuf::from("../aliases.txt");
-    let mut data_path = PathBuf::from("../data");
-    let mut dry_run = false;
-    let mut keep_old = false;
-    let mut jobs = 4usize;
-    let mut plan = false;
-
-    let mut args = args.into_iter();
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--aliases" | "-a" => {
-                aliases_path = PathBuf::from(
-                    args.next()
-                        .ok_or_else(|| format!("{arg} requires a path argument"))?,
-                );
-            }
-            "--data" | "-d" => {
-                data_path = PathBuf::from(
-                    args.next()
-                        .ok_or_else(|| format!("{arg} requires a path argument"))?,
-                );
-            }
-            "--jobs" | "-j" => {
-                jobs = args
-                    .next()
-                    .ok_or_else(|| format!("{arg} requires a number"))?
-                    .parse()
-                    .map_err(|_| format!("{arg} requires a positive integer"))?;
-                if jobs == 0 {
-                    return Err(format!("{arg} must be greater than zero"));
-                }
-            }
-            "--dry-run" => dry_run = true,
-            "--plan" => plan = true,
-            "--keep-old" => keep_old = true,
-            "--help" | "-h" => {
-                print_usage();
-                std::process::exit(0);
-            }
-            _ => return Err(format!("unknown argument: {arg}")),
-        }
-    }
-
-    Ok(Config {
-        aliases_path,
-        data_path,
-        dry_run,
-        keep_old,
-        jobs,
-        plan,
-    })
-}
-
-fn print_usage() {
-    println!(
-        "Usage: merge-aliases [OPTIONS]\n\
-\n\
-Options:\n\
-  -a, --aliases <PATH>  Alias file path [default: ../aliases.txt]\n\
-  -d, --data <PATH>     Data directory path [default: ../data]\n\
-  -j, --jobs <N>        Maximum files processed in parallel [default: 4]\n\
-      --dry-run         Print actions without modifying files\n\
-      --plan            Print planned operations as JSON without modifying files\n\
-      --keep-old        Do not remove empty old ticker folders\n\
-  -V, --version         Print version\n\
-  -h, --help            Print this help"
-    );
-}
-
 fn read_aliases(path: &Path) -> Result<Vec<Alias>, Box<dyn std::error::Error>> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
@@ -362,31 +257,14 @@ fn process_alias(config: &Config, alias: &Alias) -> Result<(), Box<dyn std::erro
         return Err(format!("old ticker path is not a directory: {}", old_dir.display()).into());
     }
 
-    if config.dry_run {
-        if !new_dir.exists() {
-            println!("would create {}", new_dir.display());
-        }
-    } else {
-        fs::create_dir_all(&new_dir)?;
-    }
+    fs::create_dir_all(&new_dir)?;
 
     let files = collect_ticker_files(&old_dir, &new_dir, &alias.old, &alias.new)?;
     if files.is_empty() {
         println!("no CSV files found for {}", alias.old);
     }
 
-    parallel_files(&files, config.jobs, |file| {
-        process_ticker_file(config, file)
-    })?;
-
-    if config.keep_old {
-        return Ok(());
-    }
-
-    if config.dry_run {
-        println!("would remove {} if empty", old_dir.display());
-        return Ok(());
-    }
+    parallel_files(&files, config.jobs, process_ticker_file)?;
 
     match fs::remove_dir(&old_dir) {
         Ok(()) => println!("removed empty folder {}", old_dir.display()),
@@ -441,29 +319,22 @@ where
     Ok(())
 }
 
-fn process_ticker_file(
-    config: &Config,
-    file: &TickerFile,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn process_ticker_file(file: &TickerFile) -> Result<(), Box<dyn std::error::Error>> {
     if file.target.exists() {
         println!(
             "merge rows {} into {}",
             file.source.display(),
             file.target.display()
         );
-        if !config.dry_run {
-            merge_by_timestamp(&file.source, &file.target)?;
-            fs::remove_file(&file.source)?;
-        }
+        merge_by_timestamp(&file.source, &file.target)?;
+        fs::remove_file(&file.source)?;
     } else {
         println!(
             "move {} to {}",
             file.source.display(),
             file.target.display()
         );
-        if !config.dry_run {
-            fs::rename(&file.source, &file.target)?;
-        }
+        fs::rename(&file.source, &file.target)?;
     }
     Ok(())
 }
@@ -521,15 +392,29 @@ fn merge_by_timestamp(old_path: &Path, new_path: &Path) -> Result<(), Box<dyn st
     let mut new_reader = BufReader::new(new_file);
     let temp_path = temp_path_for(new_path)?;
     let temp_file = File::create(&temp_path)?;
-    let mut writer = BufWriter::new(temp_file);
+    let mut writer = BufWriter::new(QueuedWriter::new(temp_file));
 
     let merge_result = merge_readers_by_timestamp(&mut old_reader, &mut new_reader, &mut writer);
     if let Err(err) = merge_result {
+        drop(writer);
         let _ = fs::remove_file(&temp_path);
         return Err(err.into());
     }
 
     if let Err(err) = writer.flush() {
+        let _ = fs::remove_file(&temp_path);
+        return Err(err.into());
+    }
+
+    let queued_writer = match writer.into_inner() {
+        Ok(writer) => writer,
+        Err(err) => {
+            drop(err.into_inner());
+            let _ = fs::remove_file(&temp_path);
+            return Err(io::Error::other("failed to finish merge output").into());
+        }
+    };
+    if let Err(err) = queued_writer.finish() {
         let _ = fs::remove_file(&temp_path);
         return Err(err.into());
     }
@@ -692,7 +577,7 @@ mod tests {
 
     #[test]
     fn lock_prevents_concurrent_merges_and_releases_on_drop() {
-        let root = env::temp_dir().join(format!(
+        let root = std::env::temp_dir().join(format!(
             "merge-aliases-lock-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -710,7 +595,7 @@ mod tests {
 
     #[test]
     fn processes_multiple_files_in_one_alias_folder() {
-        let root = env::temp_dir().join(format!(
+        let root = std::env::temp_dir().join(format!(
             "merge-aliases-files-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -737,10 +622,7 @@ mod tests {
         let config = Config {
             aliases_path: root.join("aliases"),
             data_path: root.clone(),
-            dry_run: false,
-            keep_old: false,
             jobs: 3,
-            plan: false,
         };
         process_alias(
             &config,
@@ -762,7 +644,7 @@ mod tests {
 
     #[test]
     fn plan_reports_merges_and_moves_without_modifying_files() {
-        let root = env::temp_dir().join(format!(
+        let root = std::env::temp_dir().join(format!(
             "merge-aliases-plan-{}-{}",
             std::process::id(),
             SystemTime::now()
@@ -781,10 +663,7 @@ mod tests {
         let config = Config {
             aliases_path: root.join("aliases"),
             data_path: root.clone(),
-            dry_run: false,
-            keep_old: false,
             jobs: 2,
-            plan: true,
         };
         let plan = plan_operations(
             &config,
