@@ -7,7 +7,7 @@ Library for merging CSV data folders after a ticker rename.
 Add the crate to your Rust project:
 
 ```toml
-merge-aliases = "0.2.1"
+merge-aliases = "0.2.2"
 ```
 
 The aliases file uses one `OLD --> NEW` mapping per line. Call `plan_json` for a read-only JSON plan, then `merge_folder` to process one data directory:
